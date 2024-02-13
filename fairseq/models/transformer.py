@@ -88,6 +88,39 @@ class TransformerModel(FairseqEncoderDecoderModel):
         self.args = args
         self.supports_align_args = True
 
+    def load_state_dict(self, state_dict, strict=True, args=None):
+        """we rewrite the load state dict here for only load part of trained model
+        add b
+        """
+        
+        if (hasattr(self.encoder, "append_adapter") and self.encoder.append_adapter) \
+            or (hasattr(self.encoder, "embedding_append_adapter") and self.encoder.embedding_append_adapter) \
+            or (hasattr(self.decoder, "append_adapter") and self.decoder.append_adapter) \
+            or (hasattr(self.encoder, "embedding_append_adapter") and self.encoder.embedding_append_adapter):
+
+            self.upgrade_state_dict(state_dict)
+            from fairseq.checkpoint_utils import prune_state_dict
+            new_state_dict = prune_state_dict(state_dict, args)
+
+            print('-----------------adapter load part of model-----------------')
+            model_dict = self.state_dict()
+
+            remove_keys = []
+            for k, v in new_state_dict.items():
+                if k not in model_dict:
+                    remove_keys.append(k)
+
+            for k in remove_keys:
+                new_state_dict.pop(k)
+
+            model_dict.update(new_state_dict)
+            return super().load_state_dict(model_dict)
+
+        else:
+            return super().load_state_dict(state_dict, strict, args)
+        
+        #return super().load_state_dict(state_dict, strict, args)
+
     @staticmethod
     def add_args(parser):
         """Add model-specific arguments to the parser."""
@@ -170,6 +203,16 @@ class TransformerModel(FairseqEncoderDecoderModel):
         parser.add_argument('--quant-noise-scalar', type=float, metavar='D', default=0,
                             help='scalar quantization noise and scalar quantization at training time')
         # fmt: on
+        # we add arguments for adapter
+        parser.add_argument("--activate-adapter", default=False, action="store_true")
+        parser.add_argument("--encoder-embedding-append-adapter", action="store_true", default=False)
+        parser.add_argument("--decoder-embedding-append-adapter", action="store_true", default=False)
+        parser.add_argument("--encoder-adapter-use-last-ln", action="store_true", default=False)
+        parser.add_argument("--decoder-adapter-use-last-ln", action="store_true", default=False)
+        parser.add_argument("--encoder-append-adapter", action="store_true", default=False)
+        parser.add_argument("--decoder-append-adapter", action="store_true", default=False)
+        parser.add_argument("--only-update-adapter", action="store_true", default=False)
+        parser.add_argument("--adapter-ffn-dim", type=int, default=0)
 
     @classmethod
     def build_model(cls, args, task):
@@ -217,7 +260,33 @@ class TransformerModel(FairseqEncoderDecoderModel):
             )
 
         encoder = cls.build_encoder(args, src_dict, encoder_embed_tokens)
+        ####################################################################
+        #for param in encoder.parameters():
+        #    param.requires_grad = False
+        ####################################################################
         decoder = cls.build_decoder(args, tgt_dict, decoder_embed_tokens)
+        ####################################################################
+        #for param in decoder.parameters():
+        #    param.requires_grad = False
+        ####################################################################
+        
+        # we disable the parameter updated other than adapter parameter
+        if args.only_update_adapter:
+
+            for name, param in encoder.named_parameters():
+                param.requires_grad = False
+
+            for name, param in decoder.named_parameters():
+                param.requires_grad = False
+
+            for name, param in encoder.named_parameters():
+                if "adapter" in name:
+                    param.requires_grad = True
+
+            for name, param in decoder.named_parameters():
+                if "adapter" in name:
+                    param.requires_grad = True
+
         return cls(args, encoder, decoder)
 
     @classmethod
@@ -265,6 +334,7 @@ class TransformerModel(FairseqEncoderDecoderModel):
         encoder_out = self.encoder(
             src_tokens, src_lengths=src_lengths, return_all_hiddens=return_all_hiddens
         )
+        
         decoder_out = self.decoder(
             prev_output_tokens,
             encoder_out=encoder_out,
@@ -275,7 +345,35 @@ class TransformerModel(FairseqEncoderDecoderModel):
             return_all_hiddens=return_all_hiddens,
         )
         return decoder_out
-
+    def forwards(
+        self,
+        src_tokens,
+        src_lengths,
+        prev_output_tokens,
+        return_all_hiddens: bool = True,
+        features_only: bool = False,
+        alignment_layer: Optional[int] = None,
+        alignment_heads: Optional[int] = None,
+    ):
+        """
+        Run the forward pass for an encoder-decoder model.
+        Copied from the base class, but without ``**kwargs``,
+        which are not supported by TorchScript.
+        """
+        encoder_out = self.encoder(
+            src_tokens, src_lengths=src_lengths, return_all_hiddens=return_all_hiddens
+        )
+        
+        decoder_out, y = self.decoder.forwards(
+            prev_output_tokens,
+            encoder_out=encoder_out,
+            features_only=features_only,
+            alignment_layer=alignment_layer,
+            alignment_heads=alignment_heads,
+            src_lengths=src_lengths,
+            return_all_hiddens=return_all_hiddens,
+        )
+        return decoder_out, y
     # Since get_normalized_probs is in the Fairseq Model which is not scriptable,
     # I rewrite the get_normalized_probs from Base Class to call the
     # helper function in the Base Class.
@@ -356,6 +454,25 @@ class TransformerEncoder(FairseqEncoder):
         else:
             self.layer_norm = None
 
+        self.append_adapter = args.encoder_append_adapter
+
+        self.embedding_append_adapter = args.encoder_embedding_append_adapter
+        if self.embedding_append_adapter:
+            # self.normalize_before = args.encoder_normalize_before
+            self.embedding_adapter_fc1 = nn.Linear(embed_dim, args.adapter_ffn_dim)
+            self.embedding_adapter_fc2 = nn.Linear(args.adapter_ffn_dim, embed_dim)
+
+
+            self.embedding_adapter_layer_norm = LayerNorm(embed_dim)
+            self.embedding_adapter_dropout_module = FairseqDropout(
+                float(args.dropout), module_name=self.__class__.__name__
+            )
+            self.embedding_adapter_activation_fn = utils.get_activation_fn(
+                activation=getattr(args, "activation_fn", "relu")
+            )
+        
+        self.activate_adapter = args.activate_adapter
+
     def build_encoder_layer(self, args):
         return TransformerEncoderLayer(args)
 
@@ -409,6 +526,22 @@ class TransformerEncoder(FairseqEncoder):
         # B x T x C -> T x B x C
         x = x.transpose(0, 1)
 
+        if self.activate_adapter and self.embedding_append_adapter:
+
+            residual = x
+            # if self.normalize_before:
+            x = self.embedding_adapter_layer_norm(x)
+
+            x = self.embedding_adapter_activation_fn(self.embedding_adapter_fc1(x))
+            x = self.embedding_adapter_dropout_module(x)
+            x = self.embedding_adapter_fc2(x)
+            x = self.embedding_adapter_dropout_module(x)
+            x = residual + x
+
+            # if not self.normalize_before:
+            #     x = self.embedding_adapter_layer_norm(x)
+        #print(src_tokens.shape)
+
         # compute padding mask
         encoder_padding_mask = src_tokens.eq(self.padding_idx)
 
@@ -416,7 +549,8 @@ class TransformerEncoder(FairseqEncoder):
 
         # encoder layers
         for layer in self.layers:
-            x = layer(x, encoder_padding_mask)
+            #x = layer(x, encoder_padding_mask)
+            x = layer(x, encoder_padding_mask, activate_adapter=self.activate_adapter)
             if return_all_hiddens:
                 assert encoder_states is not None
                 encoder_states.append(x)
@@ -639,6 +773,9 @@ class TransformerDecoder(FairseqIncrementalDecoder):
             nn.init.normal_(
                 self.output_projection.weight, mean=0, std=self.output_embed_dim ** -0.5
             )
+        self.append_adapter = args.decoder_append_adapter
+        self.activate_adapter = args.activate_adapter
+        #self.only_knn_knowledge = False
 
     def build_decoder_layer(self, args, no_encoder_attn=False):
         return TransformerDecoderLayer(args, no_encoder_attn)
@@ -679,10 +816,55 @@ class TransformerDecoder(FairseqIncrementalDecoder):
             full_context_alignment=full_context_alignment,
             alignment_layer=alignment_layer,
             alignment_heads=alignment_heads,
+            activate_adapter=self.activate_adapter
         )
+
         if not features_only:
             x = self.output_layer(x)
         return x, extra
+
+    def forwards(
+        self,
+        prev_output_tokens,
+        encoder_out: Optional[EncoderOut] = None,
+        incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]] = None,
+        features_only: bool = False,
+        full_context_alignment: bool = False,
+        alignment_layer: Optional[int] = None,
+        alignment_heads: Optional[int] = None,
+        src_lengths: Optional[Any] = None,
+        return_all_hiddens: bool = False,
+    ):
+        """
+        Args:
+            prev_output_tokens (LongTensor): previous decoder outputs of shape
+                `(batch, tgt_len)`, for teacher forcing
+            encoder_out (optional): output from the encoder, used for
+                encoder-side attention
+            incremental_state (dict): dictionary used for storing state during
+                :ref:`Incremental decoding`
+            features_only (bool, optional): only return features without
+                applying output layer (default: False).
+            full_context_alignment (bool, optional): don't apply
+                auto-regressive mask to self-attention (default: False).
+        Returns:
+            tuple:
+                - the decoder's output of shape `(batch, tgt_len, vocab)`
+                - a dictionary with any model-specific outputs
+        """
+        x, extra = self.extract_features(
+            prev_output_tokens,
+            encoder_out=encoder_out,
+            incremental_state=incremental_state,
+            full_context_alignment=full_context_alignment,
+            alignment_layer=alignment_layer,
+            alignment_heads=alignment_heads,
+            activate_adapter=self.activate_adapter
+        )
+        y = x
+        if not features_only:
+            x = self.output_layer(x)
+        return (x, extra), y
 
     def extract_features(
         self,
@@ -692,6 +874,7 @@ class TransformerDecoder(FairseqIncrementalDecoder):
         full_context_alignment: bool = False,
         alignment_layer: Optional[int] = None,
         alignment_heads: Optional[int] = None,
+        activate_adapter: bool = False
     ):
         return self.extract_features_scriptable(
             prev_output_tokens,
@@ -700,6 +883,7 @@ class TransformerDecoder(FairseqIncrementalDecoder):
             full_context_alignment,
             alignment_layer,
             alignment_heads,
+            activate_adapter=activate_adapter,
         )
 
     """
@@ -716,6 +900,7 @@ class TransformerDecoder(FairseqIncrementalDecoder):
         full_context_alignment: bool = False,
         alignment_layer: Optional[int] = None,
         alignment_heads: Optional[int] = None,
+        activate_adapter: bool = False,
     ):
         """
         Similar to *forward* but only return features.
@@ -766,7 +951,7 @@ class TransformerDecoder(FairseqIncrementalDecoder):
             x = self.layernorm_embedding(x)
 
         x = self.dropout_module(x)
-
+           
         # B x T x C -> T x B x C
         x = x.transpose(0, 1)
 
@@ -792,6 +977,7 @@ class TransformerDecoder(FairseqIncrementalDecoder):
                 self_attn_padding_mask=self_attn_padding_mask,
                 need_attn=bool((idx == alignment_layer)),
                 need_head_weights=bool((idx == alignment_layer)),
+                activate_adapter=activate_adapter
             )
             inner_states.append(x)
             if layer_attn is not None and idx == alignment_layer:

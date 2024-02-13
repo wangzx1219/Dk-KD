@@ -65,6 +65,18 @@ class TransformerEncoderLayer(nn.Module):
 
         self.final_layer_norm = LayerNorm(self.embed_dim)
 
+        # add by , we add adapter layer for transformer_layer here
+        self.append_adapter = args.encoder_append_adapter
+        if args.encoder_append_adapter:
+            self.adapter_fc1 = quant_noise((nn.Linear(self.embed_dim, args.adapter_ffn_dim)),
+                                           self.quant_noise,
+                                           self.quant_noise_block_size)
+            self.adapter_fc2 = quant_noise((nn.Linear(args.adapter_ffn_dim, self.embed_dim)),
+                                           self.quant_noise,
+                                           self.quant_noise_block_size)
+
+            self.adapter_layer_norm = LayerNorm(self.embed_dim)
+
     def build_fc1(self, input_dim, output_dim, q_noise, qn_block_size):
         return quant_noise(
             nn.Linear(input_dim, output_dim), p=q_noise, block_size=qn_block_size
@@ -102,7 +114,7 @@ class TransformerEncoderLayer(nn.Module):
                     state_dict["{}.{}.{}".format(name, new, m)] = state_dict[k]
                     del state_dict[k]
 
-    def forward(self, x, encoder_padding_mask, attn_mask: Optional[Tensor] = None):
+    def forward(self, x, encoder_padding_mask, attn_mask: Optional[Tensor] = None, activate_adapter = False):
         """
         Args:
             x (Tensor): input to the layer of shape `(seq_len, batch, embed_dim)`
@@ -152,6 +164,21 @@ class TransformerEncoderLayer(nn.Module):
         x = self.residual_connection(x, residual)
         if not self.normalize_before:
             x = self.final_layer_norm(x)
+
+        # add by , forward with adapter
+        if activate_adapter and self.append_adapter:
+            residual = x
+            # if self.normalize_before or True:
+            x = self.adapter_layer_norm(x)
+
+            x = self.activation_fn(self.adapter_fc1(x))
+            x = self.activation_dropout_module(x)
+            x = self.adapter_fc2(x)
+            x = self.dropout_module(x)
+            x = self.residual_connection(x, residual)
+
+            # if not self.normalize_before:
+            #    x = self.adapter_layer_norm(x)
         return x
 
 
@@ -237,6 +264,21 @@ class TransformerDecoderLayer(nn.Module):
 
         self.onnx_trace = False
 
+        # add by , we add adapter layer for transformer_layer here
+        self.append_adapter = args.decoder_append_adapter
+        self.adapter_use_last_ln = args.decoder_adapter_use_last_ln
+        if args.decoder_append_adapter:
+            self.adapter_fc1 = quant_noise((nn.Linear(self.embed_dim, args.adapter_ffn_dim)),
+                                           self.quant_noise,
+                                           self.quant_noise_block_size)
+            self.adapter_fc2 = quant_noise((nn.Linear(args.adapter_ffn_dim, self.embed_dim)),
+                                           self.quant_noise,
+                                           self.quant_noise_block_size)
+
+            
+            if not self.adapter_use_last_ln:
+                self.adapter_layer_norm = LayerNorm(self.embed_dim)
+
     def build_fc1(self, input_dim, output_dim, q_noise, qn_block_size):
         return quant_noise(nn.Linear(input_dim, output_dim), q_noise, qn_block_size)
 
@@ -287,6 +329,7 @@ class TransformerDecoderLayer(nn.Module):
         self_attn_padding_mask: Optional[torch.Tensor] = None,
         need_attn: bool = False,
         need_head_weights: bool = False,
+        activate_adapter: bool = False,
     ):
         """
         Args:
@@ -397,6 +440,25 @@ class TransformerDecoderLayer(nn.Module):
         x = self.residual_connection(x, residual)
         if not self.normalize_before:
             x = self.final_layer_norm(x)
+
+        # add by , forward with adapter
+        if activate_adapter and self.append_adapter:
+
+            residual = x
+            # if self.normalize_before or True:
+            x = self.adapter_layer_norm(x)
+
+            x = self.activation_fn(self.adapter_fc1(x))
+            x = self.activation_dropout_module(x)
+            x = self.adapter_fc2(x)
+            x = self.dropout_module(x)
+            x = self.residual_connection(x, residual)
+
+            # if not self.normalize_before:
+            #    if not self.adapter_use_last_ln:
+            #        x = self.adapter_layer_norm(x)
+            #    else:
+            #        x = self.final_layer_norm(x)
         if self.onnx_trace and incremental_state is not None:
             saved_state = self.self_attn._get_input_buffer(incremental_state)
             assert saved_state is not None

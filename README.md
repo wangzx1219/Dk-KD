@@ -1,30 +1,30 @@
 ## Requirements and Installation
-* python >= 3.7
-* pytorch >= 1.10.0
-* faiss-gpu >= 1.7.3
-* sacremoses == 0.0.41
-* sacrebleu == 1.5.1
-* fastBPE == 0.1.0
-* streamlit >= 1.13.0
-* scikit-learn >= 1.0.2
-* seaborn >= 0.12.1
+Code framework based on 
 
-Installation and configuration of the environment:
+[fairseq]: https://github.com/facebookresearch/fairseq/tree/main
+
+ and 
+
+[knnbox]: https://github.com/NJUNLP/knn-box
+
+.
+
+Configure fairseq and related environments:
 ```shell
 git clone https://github.com/wangzx1219/Dk-KD.git
 cd Dk-KD
 pip install --editable ./
 ```
 
-Installing faiss :
+Installation of other required environments:
 
 ```bash
-conda install faiss-gpu -c pytorch 
+pip install -r requirements.txt
 ```
 
 ## Data Preparation
 
-prepare pretrained models and dataset:
+Prepare pretrained models and dataset:
 
 ```bash
 cd knnbox-scripts
@@ -33,12 +33,32 @@ bash prepare_dataset_and_model.sh
 
 ## Train
 
-train teacher model and final model
+Create datastore as with knnbox:
 
-```bash
+```shell
+cd knnbox-scripts/vanilla-knn-mt
+bash build_datastore.sh
+```
+
+Training a domain-aware teacher model:
+
+```shell
 cd Dk-KD_scripts
 bash train_teacher.sh
-bash train_final.sh
+```
+
+Training domain-aware adapter layers:
+
+```shell
+bash train_adapter.sh
+```
+
+## Evaluation
+
+After two stages of distillation, the results can be tested:
+
+```shell
+bash inference.sh
 ```
 
 ## Citation

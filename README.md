@@ -1,15 +1,7 @@
 ## Requirements and Installation
-Code framework based on 
+Code framework based on [fairseq](https://github.com/facebookresearch/fairseq/tree/main) and [knnbox](https://github.com/NJUNLP/knn-box).
 
-[fairseq]: https://github.com/facebookresearch/fairseq/tree/main
-
- and 
-
-[knnbox]: https://github.com/NJUNLP/knn-box
-
-.
-
-Configure fairseq and related environments:
+Configuration of the fairseq framework:
 ```shell
 git clone https://github.com/wangzx1219/Dk-KD.git
 cd Dk-KD

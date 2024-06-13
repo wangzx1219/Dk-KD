@@ -1,4 +1,19 @@
-## Requirements and Installation
+# D*k*-KD
+
+<div align="center">
+    <img src="Dk-KD_scripts/Model.png" width=1000></img>
+    <p class="image-caption">Dk-KD: Domain-Aware k-Nearest-Neighbor Knowledge Distillation</p>
+</div>
+
+
+## **📣 News**
+
+- **[15/05/2024] Our paper is accepted to the findings of [ACL 2024](https://2024.aclweb.org/) conference!**
+- **[01/06/2024] Our code and dataset for D*k*-KD is released!**
+- **[13/06/2024] Our paper is published on arXiv: [arXiv:2406.08434](https://arxiv.org/abs/2406.08434)**
+
+## 🛠️ Requirements and Installation
+
 Code framework based on [fairseq](https://github.com/facebookresearch/fairseq/tree/main) and [knnbox](https://github.com/NJUNLP/knn-box).
 
 Configuration of the fairseq framework:
@@ -14,7 +29,7 @@ Installation of other required environments:
 pip install -r requirements.txt
 ```
 
-## Data Preparation
+## 💾 Data Preparation
 
 Prepare pretrained models and dataset:
 
@@ -23,7 +38,7 @@ cd knnbox-scripts
 bash prepare_dataset_and_model.sh
 ```
 
-## Train
+## ▶️ Train
 
 Create datastore as with knnbox:
 
@@ -45,7 +60,7 @@ Training domain-aware adapter layers:
 bash train_adapter.sh
 ```
 
-## Evaluation
+## 📏 Evaluation
 
 After two stages of distillation, the results can be tested:
 
@@ -53,7 +68,7 @@ After two stages of distillation, the results can be tested:
 bash inference.sh
 ```
 
-## Citation
+## 📝 Citation
 
 
 ```bibtex

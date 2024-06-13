@@ -10,7 +10,7 @@
 
 - **[15/05/2024] Our paper is accepted to the findings of [ACL 2024](https://2024.aclweb.org/) conference!**
 - **[01/06/2024] Our code and dataset for D*k*-KD is released!**
-- **[13/06/2024] Our paper is published on arXiv: [arXiv:2406.08434](https://arxiv.org/abs/2406.08434)**
+- **[13/06/2024] Our paper is published on arXiv:**
 
 ## 🛠️ Requirements and Installation
 

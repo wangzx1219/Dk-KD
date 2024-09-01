@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 
-from knnbox.combiner.utils import calculate_knn_prob, calculate_combined_prob
+from knnbox.combiner.utils import calculate_knn_prob, calculate_combined_prob, calculate_no_combined_prob
 
 class Combiner:
     r"""
@@ -30,6 +30,14 @@ class Combiner:
         """
         lambda_ = lambda_ if lambda_ is not None else self.lambda_
         return calculate_combined_prob(knn_prob, neural_model_logit, lambda_, log_probs)
+    
+    def get_no_combined_prob(self, knn_prob, neural_model_logit, lambda_ = None, log_probs = False):
+        r""" 
+        strategy of combine probability of vanilla knn-mt
+        If parameter `lambda_` is given, it will suppress the self.lambda_ 
+        """
+        lambda_ = lambda_ if lambda_ is not None else self.lambda_
+        return calculate_no_combined_prob(knn_prob, neural_model_logit, lambda_, log_probs)
         
 
         

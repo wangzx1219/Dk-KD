@@ -2,6 +2,7 @@ r""" some utils function used for combiner """
 
 import torch
 import torch.nn.functional as F
+from fairseq import utils
 
 def calculate_knn_prob(vals, distances, probability_dim, temperature, device, **kwargs):
     r"""
@@ -36,6 +37,29 @@ def calculate_combined_prob(knn_prob, neural_model_logit, lambda_, log_probs):
         combined_probs =  torch.log(combined_probs)
     return combined_probs, extra
 
+def calculate_no_combined_prob(knn_prob, neural_model_logit, lambda_, log_probs):
+    r""" 
+    How vanilla knn-mt calculate the combining probability.
+    """
+    
+    neural_model_prob = utils.softmax(neural_model_logit, dim=-1)
+    #combined_probs = knn_prob * lambda_ + neural_model_prob * (1 - lambda_)
+
+
+
+    # some extra infomation
+    #extra = {}
+    #extra["neural_probs"] = neural_model_prob
+    #extra["unlog_combined_probs"] = combined_probs
+    #if log_probs:
+    #    return utils.log_softmax(neural_model_logit, dim=-1), extra
+    #else:
+    #    return utils.softmax(neural_model_logit, dim=-1), extra
+    #if log_probs:
+    #    combined_probs =  torch.log(combined_probs)
+    
+
+    return knn_prob, neural_model_prob
 
 def calculate_knn_prob_with_merge_weight(vals, distances, merge_weights, probability_dim, temperature, device, **kwargs):
     r""" 
